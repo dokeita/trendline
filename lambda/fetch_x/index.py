@@ -24,6 +24,7 @@ def build_client(secrets: dict) -> Client:
     oauth1 = OAuth1(
         api_key=secrets["x_api_key"],
         api_secret=secrets["x_api_secret"],
+        callback="http://localhost:8080/callback",
         access_token=secrets["x_access_token"],
         access_token_secret=secrets["x_access_token_secret"],
     )
@@ -34,23 +35,22 @@ def fetch_timeline(client: Client) -> list[dict]:
     """Fetch the authenticated user's reverse-chronological timeline."""
     # Get the authenticated user's ID
     me = client.users.get_me()
-    user_id = me.data.id
+    user_id = me.data["id"]
 
     posts = []
     for page in client.users.get_timeline(
         id=user_id,
-        max_results=1,
-        exclude=["retweets"],
+        max_results=100,
         tweet_fields=["created_at", "public_metrics", "author_id", "lang"],
     ):
         if page.data:
             for post in page.data:
                 posts.append({
-                    "id": getattr(post, "id", None),
-                    "text": getattr(post, "text", None),
-                    "created_at": str(getattr(post, "created_at", None)),
-                    "author_id": getattr(post, "author_id", None),
-                    "lang": getattr(post, "lang", None),
+                    "id": post.get("id", None),
+                    "text": post.get("text", None),
+                    "created_at": str(post.get("created_at", None)),
+                    "author_id": post.get("author_id", None),
+                    "lang": post.get("lang", None),
                 })
         # Only fetch the first page (up to 100 posts)
         break
