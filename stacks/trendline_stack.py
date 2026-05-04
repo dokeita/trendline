@@ -59,6 +59,23 @@ class TrendlineStack(Stack):
             secret_name=secret_name.value_as_string,
         )
 
+        # ----- Lambda Layer (X SDK) -----
+        x_sdk_layer = _lambda.LayerVersion(
+            self, "XSdkLayer",
+            code=_lambda.Code.from_asset(
+                "lambda/layers/x_sdk",
+                bundling={
+                    "image": _lambda.Runtime.PYTHON_3_13.bundling_image,
+                    "command": [
+                        "bash", "-c",
+                        "pip install -r requirements.txt -t /asset-output/python",
+                    ],
+                },
+            ),
+            compatible_runtimes=[_lambda.Runtime.PYTHON_3_13],
+            description="X (Twitter) official Python SDK (xdk)",
+        )
+
         # ----- Lambda Function (fetch X API → store JSON to S3) -----
         fetch_function = _lambda.Function(
             self, "FetchXFunction",
@@ -67,6 +84,7 @@ class TrendlineStack(Stack):
             code=_lambda.Code.from_asset("lambda/fetch_x"),
             timeout=Duration.seconds(60),
             memory_size=256,
+            layers=[x_sdk_layer],
             environment={
                 "BUCKET_NAME": bucket.bucket_name,
                 "SECRET_NAME": secret_name.value_as_string,

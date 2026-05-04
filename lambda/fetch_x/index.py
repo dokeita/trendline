@@ -1,13 +1,14 @@
 """
-Lambda: Fetch posts from X (Twitter) API and store JSON in S3.
+Lambda: Fetch timeline posts from X (Twitter) API using the official XDK
+with OAuth 1.0a authentication, and store JSON in S3.
 """
 import json
 import os
-import urllib.request
-import urllib.error
 from datetime import datetime, timezone, timedelta
 
 import boto3
+from xdk import Client
+from xdk.oauth1_auth import OAuth1
 
 
 def get_secret() -> dict:
@@ -18,28 +19,52 @@ def get_secret() -> dict:
     return json.loads(response["SecretString"])
 
 
-def fetch_posts(bearer_token: str) -> dict:
-    """Call X API v2 to search recent posts."""
-    url = "https://api.x.com/2/tweets/search/recent"
-    params = "?query=lang:ja&max_results=100&tweet.fields=created_at,public_metrics,author_id"
-    req = urllib.request.Request(
-        url + params,
-        headers={
-            "Authorization": f"Bearer {bearer_token}",
-            "Content-Type": "application/json",
-        },
+def build_client(secrets: dict) -> Client:
+    """Build an XDK Client with OAuth 1.0a authentication."""
+    oauth1 = OAuth1(
+        api_key=secrets["x_api_key"],
+        api_secret=secrets["x_api_secret"],
+        access_token=secrets["x_access_token"],
+        access_token_secret=secrets["x_access_token_secret"],
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    return Client(auth=oauth1)
+
+
+def fetch_timeline(client: Client) -> list[dict]:
+    """Fetch the authenticated user's reverse-chronological timeline."""
+    # Get the authenticated user's ID
+    me = client.users.get_me()
+    user_id = me.data.id
+
+    posts = []
+    for page in client.users.get_timeline(
+        id=user_id,
+        max_results=1,
+        exclude=["retweets"],
+        tweet_fields=["created_at", "public_metrics", "author_id", "lang"],
+    ):
+        if page.data:
+            for post in page.data:
+                posts.append({
+                    "id": getattr(post, "id", None),
+                    "text": getattr(post, "text", None),
+                    "created_at": str(getattr(post, "created_at", None)),
+                    "author_id": getattr(post, "author_id", None),
+                    "lang": getattr(post, "lang", None),
+                })
+        # Only fetch the first page (up to 100 posts)
+        break
+
+    return posts
 
 
 def handler(event, context):
     """Lambda entry point."""
     secrets = get_secret()
-    bearer_token = secrets["bearer_token"]
+    client = build_client(secrets)
 
-    # Fetch posts from X API
-    data = fetch_posts(bearer_token)
+    # Fetch timeline posts
+    posts = fetch_timeline(client)
 
     # Upload JSON to S3
     s3 = boto3.client("s3")
@@ -48,6 +73,7 @@ def handler(event, context):
     now = datetime.now(jst)
     key = f"raw/{now.strftime('%Y/%m/%d/%H%M%S')}.json"
 
+    data = {"data": posts}
     s3.put_object(
         Bucket=bucket_name,
         Key=key,
@@ -55,4 +81,4 @@ def handler(event, context):
         ContentType="application/json",
     )
 
-    return {"statusCode": 200, "key": key, "count": len(data.get("data", []))}
+    return {"statusCode": 200, "key": key, "count": len(posts)}
