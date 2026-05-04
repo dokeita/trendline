@@ -1,0 +1,8 @@
+[project]
+name = "trendline"
+version = "0.1.0"
+description = "X (Twitter) posts auto-summarization pipeline on AWS"
+requires-python = ">=3.13"
+dependencies = [
+    "aws-cdk-lib>=2.252.0"
+]
