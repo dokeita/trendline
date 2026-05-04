@@ -1,8 +1,9 @@
 """
-Lambda: Read JSON from S3, summarize with Bedrock, publish to SNS.
+Lambda: Read JSON from S3, invoke Bedrock Agent for summarization, publish to SNS.
 """
 import json
 import os
+import uuid
 
 import boto3
 
@@ -10,11 +11,13 @@ import boto3
 def handler(event, context):
     """Lambda entry point triggered by EventBridge S3 PutObject event."""
     s3 = boto3.client("s3")
-    bedrock_runtime = boto3.client("bedrock-runtime")
+    bedrock_agent_runtime = boto3.client("bedrock-agent-runtime")
     sns = boto3.client("sns")
 
     bucket_name = os.environ["BUCKET_NAME"]
     topic_arn = os.environ["SNS_TOPIC_ARN"]
+    agent_id = os.environ["BEDROCK_AGENT_ID"]
+    agent_alias_id = os.environ["BEDROCK_AGENT_ALIAS_ID"]
 
     # Extract S3 key from EventBridge event
     detail = event.get("detail", {})
@@ -27,7 +30,7 @@ def handler(event, context):
     response = s3.get_object(Bucket=bucket_name, Key=object_key)
     raw_data = json.loads(response["Body"].read().decode("utf-8"))
 
-    # Build prompt for summarization
+    # Build prompt for the agent
     tweets = raw_data.get("data", [])
     if not tweets:
         return {"statusCode": 200, "message": "No tweets to summarize"}
@@ -42,24 +45,25 @@ def handler(event, context):
         f"{tweet_texts}"
     )
 
-    # Invoke Bedrock model
-    body = json.dumps({
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 1024,
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
-    })
-
-    bedrock_response = bedrock_runtime.invoke_model(
-        modelId="anthropic.claude-3-haiku-20240307-v1:0",
-        contentType="application/json",
-        accept="application/json",
-        body=body,
+    # Invoke Bedrock Agent
+    agent_response = bedrock_agent_runtime.invoke_agent(
+        agentId=agent_id,
+        agentAliasId=agent_alias_id,
+        sessionId=str(uuid.uuid4()),
+        inputText=prompt,
     )
 
-    result = json.loads(bedrock_response["body"].read().decode("utf-8"))
-    summary = result["content"][0]["text"]
+    # Collect streamed response chunks
+    summary_parts = []
+    for event_chunk in agent_response["completion"]:
+        if "chunk" in event_chunk:
+            chunk_bytes = event_chunk["chunk"].get("bytes", b"")
+            summary_parts.append(chunk_bytes.decode("utf-8"))
+
+    summary = "".join(summary_parts)
+
+    if not summary:
+        return {"statusCode": 500, "error": "Agent returned empty response"}
 
     # Publish summary to SNS
     sns.publish(

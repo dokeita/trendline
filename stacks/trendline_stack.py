@@ -116,12 +116,11 @@ class TrendlineStack(Stack):
             self, "SummaryAgent",
             agent_name="trendline-summary-agent",
             agent_resource_role_arn=agent_role.role_arn,
-            foundation_model="anthropic.claude-3-haiku-20240307-v1:0",
+            foundation_model="amazon.nova-micro-v1:0",
             instruction=(
-                "You are a summarization assistant. "
-                "Read the JSON file from the S3 bucket and create a concise Japanese summary "
-                "of the X (Twitter) posts. Focus on key trends and notable topics. "
-                "After summarizing, publish the result to the SNS topic."
+                "あなたは要約アシスタントです。"
+                "X (Twitter) の投稿データを受け取り、主要なトレンドや注目すべきトピックを日本語で簡潔に要約してください。"
+                "要約は箇条書きで整理し、重要度の高い話題から順に記載してください。"
             ),
             idle_session_ttl_in_seconds=600,
         )
