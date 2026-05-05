@@ -10,7 +10,6 @@ from aws_cdk import (
     aws_sns_subscriptions as subscriptions,
     aws_iam as iam,
     aws_secretsmanager as secretsmanager,
-    aws_bedrock as bedrock,
     CfnParameter,
 )
 from constructs import Construct
@@ -33,6 +32,13 @@ class TrendlineStack(Stack):
             self, "NotificationEmail",
             type="String",
             description="Email address to receive summary notifications",
+        )
+
+        model_id = CfnParameter(
+            self, "ModelId",
+            type="String",
+            default="jp.anthropic.claude-haiku-4-5-20251001-v1:0",
+            description="Bedrock inference profile ID for summarization",
         )
 
         # ----- S3 Bucket (JSON storage) -----
@@ -103,29 +109,7 @@ class TrendlineStack(Stack):
         )
         cron_rule.add_target(targets.LambdaFunction(fetch_function))
 
-        # ----- Bedrock Agent -----
-        agent_role = iam.Role(
-            self, "BedrockAgentRole",
-            assumed_by=iam.ServicePrincipal("bedrock.amazonaws.com"),
-            description="Role for Bedrock Agent to read S3 and publish to SNS",
-        )
-        bucket.grant_read(agent_role)
-        topic.grant_publish(agent_role)
-
-        agent = bedrock.CfnAgent(
-            self, "SummaryAgent",
-            agent_name="trendline-summary-agent",
-            agent_resource_role_arn=agent_role.role_arn,
-            foundation_model="amazon.nova-micro-v1:0",
-            instruction=(
-                "あなたは要約アシスタントです。"
-                "X (Twitter) の投稿データを受け取り、主要なトレンドや注目すべきトピックを日本語で簡潔に要約してください。"
-                "要約は箇条書きで整理し、重要度の高い話題から順に記載してください。"
-            ),
-            idle_session_ttl_in_seconds=600,
-        )
-
-        # ----- Lambda Function (invoke Bedrock Agent and publish to SNS) -----
+        # ----- Lambda Function (invoke Bedrock Converse API and publish to SNS) -----
         summarize_function = _lambda.Function(
             self, "SummarizeFunction",
             runtime=_lambda.Runtime.PYTHON_3_13,
@@ -136,8 +120,7 @@ class TrendlineStack(Stack):
             environment={
                 "BUCKET_NAME": bucket.bucket_name,
                 "SNS_TOPIC_ARN": topic.topic_arn,
-                "BEDROCK_AGENT_ID": agent.attr_agent_id,
-                "BEDROCK_AGENT_ALIAS_ID": "TSTALIASID",
+                "MODEL_ID": model_id.value_as_string,
             },
         )
 
@@ -146,9 +129,15 @@ class TrendlineStack(Stack):
         topic.grant_publish(summarize_function)
         summarize_function.add_to_role_policy(
             iam.PolicyStatement(
+                actions=["bedrock:InvokeModel"],
+                resources=["*"],
+            )
+        )
+        summarize_function.add_to_role_policy(
+            iam.PolicyStatement(
                 actions=[
-                    "bedrock:InvokeAgent",
-                    "bedrock:InvokeModel",
+                    "aws-marketplace:ViewSubscriptions",
+                    "aws-marketplace:Subscribe",
                 ],
                 resources=["*"],
             )

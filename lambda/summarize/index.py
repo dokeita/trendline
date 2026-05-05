@@ -1,9 +1,8 @@
 """
-Lambda: Read JSON from S3, invoke Bedrock Agent for summarization, publish to SNS.
+Lambda: Read JSON from S3, summarize with Bedrock Converse API, publish to SNS.
 """
 import json
 import os
-import uuid
 
 import boto3
 
@@ -11,13 +10,13 @@ import boto3
 def handler(event, context):
     """Lambda entry point triggered by EventBridge S3 PutObject event."""
     s3 = boto3.client("s3")
-    bedrock_agent_runtime = boto3.client("bedrock-agent-runtime")
+    bedrock_runtime = boto3.client("bedrock-runtime")
     sns = boto3.client("sns")
 
     bucket_name = os.environ["BUCKET_NAME"]
     topic_arn = os.environ["SNS_TOPIC_ARN"]
-    agent_id = os.environ["BEDROCK_AGENT_ID"]
-    agent_alias_id = os.environ["BEDROCK_AGENT_ALIAS_ID"]
+    model_id = os.environ.get("MODEL_ID", "us.amazon.nova-micro-v1:0")
+
 
     # Extract S3 key from EventBridge event
     detail = event.get("detail", {})
@@ -30,40 +29,45 @@ def handler(event, context):
     response = s3.get_object(Bucket=bucket_name, Key=object_key)
     raw_data = json.loads(response["Body"].read().decode("utf-8"))
 
-    # Build prompt for the agent
+    # Build prompt for summarization
     tweets = raw_data.get("data", [])
     if not tweets:
         return {"statusCode": 200, "message": "No tweets to summarize"}
 
     tweet_texts = "\n".join(
-        [f"- {t.get('text', '')}" for t in tweets[:50]]
+        [f"- {t.get('text', '')}" for t in tweets]
     )
 
     prompt = (
         "以下はX (Twitter) から取得した最新の投稿一覧です。\n"
-        "主要なトレンドや注目すべきトピックを日本語で簡潔に要約してください。\n\n"
+        "主要なトレンドや注目すべきトピックを日本語で簡潔に要約してください。\n"
+        "要約は箇条書きで整理し、重要度の高い話題から順に記載してください。\n\n"
         f"{tweet_texts}"
     )
 
-    # Invoke Bedrock Agent
-    agent_response = bedrock_agent_runtime.invoke_agent(
-        agentId=agent_id,
-        agentAliasId=agent_alias_id,
-        sessionId=str(uuid.uuid4()),
-        inputText=prompt,
+    # Invoke Bedrock Converse API
+    converse_response = bedrock_runtime.converse(
+        modelId=model_id,
+        messages=[
+            {
+                "role": "user",
+                "content": [{"text": prompt}],
+            }
+        ],
+        inferenceConfig={
+            "maxTokens": 2048,
+            "temperature": 0.3,
+        },
     )
 
-    # Collect streamed response chunks
-    summary_parts = []
-    for event_chunk in agent_response["completion"]:
-        if "chunk" in event_chunk:
-            chunk_bytes = event_chunk["chunk"].get("bytes", b"")
-            summary_parts.append(chunk_bytes.decode("utf-8"))
-
-    summary = "".join(summary_parts)
+    # Extract response text
+    output_message = converse_response["output"]["message"]
+    summary = "".join(
+        block["text"] for block in output_message["content"] if "text" in block
+    )
 
     if not summary:
-        return {"statusCode": 500, "error": "Agent returned empty response"}
+        return {"statusCode": 500, "error": "Model returned empty response"}
 
     # Publish summary to SNS
     sns.publish(

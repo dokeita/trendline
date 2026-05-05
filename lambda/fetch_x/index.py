@@ -32,7 +32,18 @@ def build_client(secrets: dict) -> Client:
 
 
 def fetch_timeline(client: Client) -> list[dict]:
-    """Fetch the authenticated user's reverse-chronological timeline."""
+    """Fetch the authenticated user's reverse-chronological timeline for the previous day (JST)."""
+    # Calculate previous day (JST) time range
+    jst = timezone(timedelta(hours=9))
+    now_jst = datetime.now(jst)
+    yesterday_jst = now_jst - timedelta(days=1)
+    start_of_day = yesterday_jst.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_of_day = yesterday_jst.replace(hour=23, minute=59, second=59, microsecond=0)
+
+    # Convert to UTC ISO 8601 format for the API
+    start_time = start_of_day.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_time = end_of_day.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
     # Get the authenticated user's ID
     me = client.users.get_me()
     user_id = me.data["id"]
@@ -42,6 +53,8 @@ def fetch_timeline(client: Client) -> list[dict]:
         id=user_id,
         max_results=100,
         tweet_fields=["created_at", "public_metrics", "author_id", "lang"],
+        start_time=start_time,
+        end_time=end_time,
     ):
         if page.data:
             for post in page.data:
@@ -52,10 +65,11 @@ def fetch_timeline(client: Client) -> list[dict]:
                     "author_id": post.get("author_id", None),
                     "lang": post.get("lang", None),
                 })
-        # Only fetch the first page (up to 100 posts)
-        break
+        # Stop after collecting 500 posts
+        if len(posts) >= 500:
+            break
 
-    return posts
+    return posts[:500]
 
 
 def handler(event, context):
