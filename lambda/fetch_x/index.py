@@ -58,12 +58,17 @@ def fetch_timeline(client: Client) -> list[dict]:
     ):
         if page.data:
             for post in page.data:
+                metrics = post.get("public_metrics", {})
                 posts.append({
                     "id": post.get("id", None),
                     "text": post.get("text", None),
                     "created_at": str(post.get("created_at", None)),
                     "author_id": post.get("author_id", None),
                     "lang": post.get("lang", None),
+                    "like_count": metrics.get("like_count", 0),
+                    "retweet_count": metrics.get("retweet_count", 0),
+                    "reply_count": metrics.get("reply_count", 0),
+                    "impression_count": metrics.get("impression_count", 0),
                 })
         # Stop after collecting 500 posts
         if len(posts) >= 500:

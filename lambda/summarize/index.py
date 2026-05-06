@@ -35,13 +35,22 @@ def handler(event, context):
         return {"statusCode": 200, "message": "No tweets to summarize"}
 
     tweet_texts = "\n".join(
-        [f"- {t.get('text', '')}" for t in tweets]
+        [
+            f"- [♥{t.get('like_count', 0)} RT{t.get('retweet_count', 0)} "
+            f"💬{t.get('reply_count', 0)} 👁{t.get('impression_count', 0)}] "
+            f"{t.get('text', '')}"
+            for t in tweets
+        ]
     )
 
     prompt = (
         "以下はX (Twitter) から取得した最新の投稿一覧です。\n"
-        "主要なトレンドや注目すべきトピックを日本語で簡潔に要約してください。\n"
-        "要約は箇条書きで整理し、重要度の高い話題から順に記載してください。\n\n"
+        "各投稿には [♥いいね数 RTリツイート数 💬リプライ数 👁インプレッション数] のエンゲージメント指標が付いています。\n\n"
+        "以下のルールに従って日本語で要約してください:\n"
+        "- エンゲージメント（いいね・RT・インプレッション）が高い投稿ほど重要度が高いと判断する\n"
+        "- 主要なトレンドや注目すべきトピックを箇条書きで整理する\n"
+        "- 重要度の高い話題から順に記載する\n"
+        "- 各トピックにどの程度注目されているか（エンゲージメントの規模感）を簡潔に付記する\n\n"
         f"{tweet_texts}"
     )
 
