@@ -49,21 +49,39 @@ def fetch_timeline(client: Client) -> list[dict]:
     user_id = me.data["id"]
 
     posts = []
+    users_map = {}  # author_id -> user info
+
     for page in client.users.get_timeline(
         id=user_id,
         max_results=100,
         tweet_fields=["created_at", "public_metrics", "author_id", "lang"],
+        expansions=["author_id"],
+        user_fields=["username", "name", "public_metrics"],
         start_time=start_time,
         end_time=end_time,
     ):
+        # Build user lookup from includes
+        if hasattr(page, "includes") and page.includes:
+            for user in page.includes.get("users", []):
+                users_map[user["id"]] = {
+                    "username": user.get("username", ""),
+                    "name": user.get("name", ""),
+                    "followers_count": user.get("public_metrics", {}).get("followers_count", 0),
+                }
+
         if page.data:
             for post in page.data:
                 metrics = post.get("public_metrics", {})
+                author_id = post.get("author_id", None)
+                author_info = users_map.get(author_id, {})
                 posts.append({
                     "id": post.get("id", None),
                     "text": post.get("text", None),
                     "created_at": str(post.get("created_at", None)),
-                    "author_id": post.get("author_id", None),
+                    "author_id": author_id,
+                    "author_username": author_info.get("username", ""),
+                    "author_name": author_info.get("name", ""),
+                    "author_followers_count": author_info.get("followers_count", 0),
                     "lang": post.get("lang", None),
                     "like_count": metrics.get("like_count", 0),
                     "retweet_count": metrics.get("retweet_count", 0),

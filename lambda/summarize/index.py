@@ -36,7 +36,9 @@ def handler(event, context):
 
     tweet_texts = "\n".join(
         [
-            f"- [♥{t.get('like_count', 0)} RT{t.get('retweet_count', 0)} "
+            f"- [@{t.get('author_username', '?')} "
+            f"({t.get('author_name', '?')}, {t.get('author_followers_count', 0)}フォロワー) "
+            f"♥{t.get('like_count', 0)} RT{t.get('retweet_count', 0)} "
             f"💬{t.get('reply_count', 0)} 👁{t.get('impression_count', 0)}] "
             f"{t.get('text', '')}"
             for t in tweets
@@ -45,12 +47,14 @@ def handler(event, context):
 
     prompt = (
         "以下はX (Twitter) から取得した最新の投稿一覧です。\n"
-        "各投稿には [♥いいね数 RTリツイート数 💬リプライ数 👁インプレッション数] のエンゲージメント指標が付いています。\n\n"
+        "各投稿には [@ユーザー名 (表示名, フォロワー数) ♥いいね RTリツイート 💬リプライ 👁インプレッション] の情報が付いています。\n\n"
         "以下のルールに従って日本語で要約してください:\n"
         "- エンゲージメント（いいね・RT・インプレッション）が高い投稿ほど重要度が高いと判断する\n"
+        "- フォロワー数が多い影響力のあるアカウントの発言を優先的に取り上げる\n"
         "- 主要なトレンドや注目すべきトピックを箇条書きで整理する\n"
         "- 重要度の高い話題から順に記載する\n"
-        "- 各トピックにどの程度注目されているか（エンゲージメントの規模感）を簡潔に付記する\n\n"
+        "- 各トピックにどの程度注目されているか（エンゲージメントの規模感）を簡潔に付記する\n"
+        "- 重要な発言には発言者を「表示名 (@ユーザー名)」の形式で必ず併記する（例: てつてつ (@tetutetu214)）。@ユーザー名だけにしない\n\n"
         f"{tweet_texts}"
     )
 
